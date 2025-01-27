@@ -17,7 +17,7 @@ function getAllTsFiles(dir: string): string[] {
         const stat = fs.statSync(fullPath);
 
         if (stat.isDirectory()) {
-            results = results.concat(getAllTsFiles(fullPath));
+            results = results.concat(getAllTsFiles(fullPath)); // Recursive call
         } else if (file.endsWith(".ts")) {
             results.push(fullPath);
         }
@@ -31,9 +31,10 @@ function getAllTsFiles(dir: string): string[] {
  * @param projectPath Path to the NestJS project root
  */
 export function scanNestProject(projectPath: string) {
+    const projectFolderName = path.basename(projectPath); // Get the folder name as workspace name
     const controllersDir = path.join(projectPath, "src");
     const project = new Project();
-    const routes: any[] = [];
+    const routesByController: Record<string, any[]> = {}; // Store routes per controller
 
     console.log(chalk.yellow(`📂 Recursively searching for TypeScript files in: ${controllersDir}`));
 
@@ -48,10 +49,7 @@ export function scanNestProject(projectPath: string) {
 
         try {
             const sourceFile = project.addSourceFileAtPath(filePath);
-
-            const controllerClasses = sourceFile.getClasses().filter(cls =>
-                cls.getDecorator("Controller")
-            );
+            const controllerClasses = sourceFile.getClasses().filter(cls => cls.getDecorator("Controller"));
 
             for (const cls of controllerClasses) {
                 const controllerDecorator = cls.getDecorator("Controller");
@@ -64,7 +62,12 @@ export function scanNestProject(projectPath: string) {
                     }
                 }
 
-                console.log(chalk.green(`✅ Found Controller: ${cls.getName()} (Base Path: "/${basePath}")`));
+                const controllerName = cls.getName() || "UnknownController";
+                console.log(chalk.green(`✅ Found Controller: ${controllerName} (Base Path: "/${basePath}")`));
+
+                if (!routesByController[controllerName]) {
+                    routesByController[controllerName] = [];
+                }
 
                 cls.getMethods().forEach(method => {
                     const routeDecorators = method.getDecorators().filter(decorator =>
@@ -92,7 +95,7 @@ export function scanNestProject(projectPath: string) {
                             console.log(chalk.magenta(`   🔹 Parameters: ${JSON.stringify(parameters)}`));
                         }
 
-                        routes.push({
+                        routesByController[controllerName].push({
                             method: httpMethod,
                             url: fullPath,
                             parameters
@@ -106,18 +109,30 @@ export function scanNestProject(projectPath: string) {
     }
 
     console.log(chalk.green("\n🎉 Scan Completed! Routes Found:"));
-    routes.forEach(route => {
-        console.log(`➡️  ${route.method} ${route.url}`);
+    Object.entries(routesByController).forEach(([controller, routes]) => {
+        console.log(`📁 Controller: ${controller}`);
+        routes.forEach(route => {
+            console.log(`➡️  ${route.method} ${route.url}`);
+        });
     });
 
-    return {
-        _type: "export",
-        __export_source: "Created by Pigeon",
-        __export_format: 4,
-        __export_date: new Date().toISOString(),
-        resources: routes.map(route => ({
+    const workspaceId = `wrk_${Math.random().toString(36).substring(7)}`;
+
+    // per controller
+    const requestGroups = Object.keys(routesByController).map(controllerName => ({
+        _id: `fld_${Math.random().toString(36).substring(7)}`,
+        _type: "request_group",
+        parentId: workspaceId,
+        name: controllerName,
+    }));
+
+    // requests grouped under their controllers
+    const requests = Object.entries(routesByController).flatMap(([controllerName, routes]) => {
+        const groupId = requestGroups.find(group => group.name === controllerName)?._id || workspaceId;
+
+        return routes.map(route => ({
             _id: `req_${Math.random().toString(36).substring(7)}`,
-            parentId: "__ROOT__",
+            parentId: groupId,
             _type: "request",
             method: route.method,
             url: `{{base_url}}${route.url}`,
@@ -128,6 +143,22 @@ export function scanNestProject(projectPath: string) {
             })),
             headers: [],
             body: {},
-        }))
+        }));
+    });
+
+    return {
+        _type: "export",
+        __export_source: "Created by Pigeon",
+        __export_format: 4,
+        __export_date: new Date().toISOString(),
+        resources: [
+            {
+                _id: workspaceId,
+                _type: "workspace",
+                name: projectFolderName, // Use folder name as workspace name
+            },
+            ...requestGroups,
+            ...requests,
+        ]
     };
 }

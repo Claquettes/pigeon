@@ -19,7 +19,7 @@ program
             process.exit(1);
         }
 
-        console.log(chalk.blue(`Scanning NestJS project at: ${fullPath}`));
+        console.log(chalk.blue(`🪹 Scanning NestJS project at: ${fullPath} 🐦`));
 
         const routes = scanNestProject(fullPath);
         const outputPath = path.join(fullPath, "insomnia.json");

@@ -1,6 +1,30 @@
 import { Project, SyntaxKind, ParameterDeclaration } from "ts-morph";
 import path from "path";
 import fs from "fs-extra";
+import chalk from "chalk";
+
+/**
+ * Recursively retrieves all TypeScript files from a given directory.
+ * @param dir The directory to scan.
+ * @returns List of .ts file paths.
+ */
+function getAllTsFiles(dir: string): string[] {
+    let results: string[] = [];
+    const files = fs.readdirSync(dir);
+
+    for (const file of files) {
+        const fullPath = path.join(dir, file);
+        const stat = fs.statSync(fullPath);
+
+        if (stat.isDirectory()) {
+            results = results.concat(getAllTsFiles(fullPath));
+        } else if (file.endsWith(".ts")) {
+            results.push(fullPath);
+        }
+    }
+
+    return results;
+}
 
 /**
  * Scans a NestJS project to extract routes and generate Insomnia-compatible JSON.
@@ -9,58 +33,82 @@ import fs from "fs-extra";
 export function scanNestProject(projectPath: string) {
     const controllersDir = path.join(projectPath, "src");
     const project = new Project();
-
-    const tsFiles = fs.readdirSync(controllersDir).filter(file => file.endsWith(".ts"));
     const routes: any[] = [];
 
-    for (const file of tsFiles) {
-        const filePath = path.join(controllersDir, file);
-        const sourceFile = project.addSourceFileAtPath(filePath);
+    console.log(chalk.yellow(`📂 Recursively searching for TypeScript files in: ${controllersDir}`));
 
-        const controllerClasses = sourceFile.getClasses().filter(cls =>
-            cls.getDecorator("Controller")
-        );
+    const tsFiles = getAllTsFiles(controllersDir);
+    if (tsFiles.length === 0) {
+        console.log(chalk.red("⚠️ No TypeScript files found in the src directory!"));
+        return;
+    }
 
-        for (const cls of controllerClasses) {
-            const controllerDecorator = cls.getDecorator("Controller");
-            let basePath = "";
+    for (const filePath of tsFiles) {
+        console.log(chalk.cyan(`🔍 Scanning file: ${filePath}`));
 
-            if (controllerDecorator) {
-                const arg = controllerDecorator.getArguments()[0];
-                if (arg && arg.getKind() === SyntaxKind.StringLiteral) {
-                    basePath = arg.getText().replace(/['"]/g, ""); // Remove quotes
-                }
-            }
+        try {
+            const sourceFile = project.addSourceFileAtPath(filePath);
 
-            cls.getMethods().forEach(method => {
-                const routeDecorators = method.getDecorators().filter(decorator =>
-                    ["Get", "Post", "Put", "Delete", "Patch"].includes(decorator.getName())
-                );
+            const controllerClasses = sourceFile.getClasses().filter(cls =>
+                cls.getDecorator("Controller")
+            );
 
-                for (const decorator of routeDecorators) {
-                    const httpMethod = decorator.getName().toUpperCase();
-                    let routePath = "";
+            for (const cls of controllerClasses) {
+                const controllerDecorator = cls.getDecorator("Controller");
+                let basePath = "";
 
-                    const args = decorator.getArguments();
-                    if (args.length > 0 && args[0].getKind() === SyntaxKind.StringLiteral) {
-                        routePath = args[0].getText().replace(/['"]/g, ""); // Remove quotes
+                if (controllerDecorator) {
+                    const arg = controllerDecorator.getArguments()[0];
+                    if (arg && arg.getKind() === SyntaxKind.StringLiteral) {
+                        basePath = arg.getText().replace(/['"]/g, ""); // Remove quotes
                     }
-
-                    const fullPath = `/${basePath}/${routePath}`.replace(/\/+/g, "/"); // Normalize slashes
-                    const parameters = method.getParameters().map((param: ParameterDeclaration) => ({
-                        name: param.getName(),
-                        type: param.getType().getText()
-                    }));
-
-                    routes.push({
-                        method: httpMethod,
-                        url: fullPath,
-                        parameters
-                    });
                 }
-            });
+
+                console.log(chalk.green(`✅ Found Controller: ${cls.getName()} (Base Path: "/${basePath}")`));
+
+                cls.getMethods().forEach(method => {
+                    const routeDecorators = method.getDecorators().filter(decorator =>
+                        ["Get", "Post", "Put", "Delete", "Patch"].includes(decorator.getName())
+                    );
+
+                    for (const decorator of routeDecorators) {
+                        const httpMethod = decorator.getName().toUpperCase();
+                        let routePath = "";
+
+                        const args = decorator.getArguments();
+                        if (args.length > 0 && args[0].getKind() === SyntaxKind.StringLiteral) {
+                            routePath = args[0].getText().replace(/['"]/g, ""); // Remove quotes
+                        }
+
+                        const fullPath = `/${basePath}/${routePath}`.replace(/\/+/g, "/"); // Normalize slashes
+                        console.log(chalk.blue(`➡️  ${httpMethod} ${fullPath} (Method: ${method.getName()})`));
+
+                        const parameters = method.getParameters().map((param: ParameterDeclaration) => ({
+                            name: param.getName(),
+                            type: param.getType().getText()
+                        }));
+
+                        if (parameters.length > 0) {
+                            console.log(chalk.magenta(`   🔹 Parameters: ${JSON.stringify(parameters)}`));
+                        }
+
+                        routes.push({
+                            method: httpMethod,
+                            url: fullPath,
+                            parameters
+                        });
+                    }
+                });
+            }
+        } catch (error) {
+            console.log(chalk.red(`❌ Error processing file: ${filePath}\n${error}`));
         }
     }
+
+    console.log(chalk.green("\n🎉 Scan Completed! Routes Found:"));
+    routes.forEach(route => {
+        console.log(`➡️  ${route.method} ${route.url}`);
+    });
 
     return {
         _type: "export",

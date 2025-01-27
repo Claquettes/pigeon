@@ -10,19 +10,22 @@ import chalk from "chalk";
  */
 function getAllTsFiles(dir: string): string[] {
     let results: string[] = [];
-    const files = fs.readdirSync(dir);
+    try {
+        const files = fs.readdirSync(dir);
 
-    for (const file of files) {
-        const fullPath = path.join(dir, file);
-        const stat = fs.statSync(fullPath);
+        for (const file of files) {
+            const fullPath = path.join(dir, file);
+            const stat = fs.statSync(fullPath);
 
-        if (stat.isDirectory()) {
-            results = results.concat(getAllTsFiles(fullPath)); // Recursive call
-        } else if (file.endsWith(".ts")) {
-            results.push(fullPath);
+            if (stat.isDirectory()) {
+                results = results.concat(getAllTsFiles(fullPath)); // Recursive call
+            } else if (file.endsWith(".ts")) {
+                results.push(fullPath);
+            }
         }
+    } catch (error) {
+        console.log(chalk.red(`❌ Error reading directory: ${dir}\n${error}`));
     }
-
     return results;
 }
 
@@ -31,7 +34,7 @@ function getAllTsFiles(dir: string): string[] {
  * @param projectPath Path to the NestJS project root
  */
 export function scanNestProject(projectPath: string) {
-    const projectFolderName = path.basename(projectPath); // Get the folder name as workspace name
+    const projectFolderName = path.basename(projectPath); // Use folder name as workspace name
     const controllersDir = path.join(projectPath, "src");
     const project = new Project();
     const routesByController: Record<string, any[]> = {}; // Store routes per controller
@@ -45,63 +48,83 @@ export function scanNestProject(projectPath: string) {
     }
 
     for (const filePath of tsFiles) {
-        console.log(chalk.cyan(`🔍 Scanning file: ${filePath}`));
+        //console.log(chalk.cyan(`🔍 Scanning file: ${filePath}`));
 
         try {
             const sourceFile = project.addSourceFileAtPath(filePath);
             const controllerClasses = sourceFile.getClasses().filter(cls => cls.getDecorator("Controller"));
 
-            for (const cls of controllerClasses) {
-                const controllerDecorator = cls.getDecorator("Controller");
-                let basePath = "";
+            if (controllerClasses.length === 0) {
+                //console.log(chalk.gray(`⚠️ No controllers found in ${filePath}, skipping.`));
+                continue;
+            }
 
-                if (controllerDecorator) {
+            for (const cls of controllerClasses) {
+                try {
+                    const controllerDecorator = cls.getDecorator("Controller");
+                    if (!controllerDecorator) {
+                        console.log(chalk.red(`⚠️ Skipping invalid controller in ${filePath}: Missing @Controller decorator.`));
+                        continue;
+                    }
+
+                    let basePath = "";
                     const arg = controllerDecorator.getArguments()[0];
                     if (arg && arg.getKind() === SyntaxKind.StringLiteral) {
                         basePath = arg.getText().replace(/['"]/g, ""); // Remove quotes
                     }
-                }
 
-                const controllerName = cls.getName() || "UnknownController";
-                console.log(chalk.green(`✅ Found Controller: ${controllerName} (Base Path: "/${basePath}")`));
+                    const controllerName = cls.getName() || "UnknownController";
+                    console.log(chalk.green(`✅ Found Controller: ${controllerName} (Base Path: "/${basePath}")`));
 
-                if (!routesByController[controllerName]) {
-                    routesByController[controllerName] = [];
-                }
-
-                cls.getMethods().forEach(method => {
-                    const routeDecorators = method.getDecorators().filter(decorator =>
-                        ["Get", "Post", "Put", "Delete", "Patch"].includes(decorator.getName())
-                    );
-
-                    for (const decorator of routeDecorators) {
-                        const httpMethod = decorator.getName().toUpperCase();
-                        let routePath = "";
-
-                        const args = decorator.getArguments();
-                        if (args.length > 0 && args[0].getKind() === SyntaxKind.StringLiteral) {
-                            routePath = args[0].getText().replace(/['"]/g, ""); // Remove quotes
-                        }
-
-                        const fullPath = `/${basePath}/${routePath}`.replace(/\/+/g, "/"); // Normalize slashes
-                        console.log(chalk.blue(`➡️  ${httpMethod} ${fullPath} (Method: ${method.getName()})`));
-
-                        const parameters = method.getParameters().map((param: ParameterDeclaration) => ({
-                            name: param.getName(),
-                            type: param.getType().getText()
-                        }));
-
-                        if (parameters.length > 0) {
-                            console.log(chalk.magenta(`   🔹 Parameters: ${JSON.stringify(parameters)}`));
-                        }
-
-                        routesByController[controllerName].push({
-                            method: httpMethod,
-                            url: fullPath,
-                            parameters
-                        });
+                    if (!routesByController[controllerName]) {
+                        routesByController[controllerName] = [];
                     }
-                });
+
+                    cls.getMethods().forEach(method => {
+                        try {
+                            const routeDecorators = method.getDecorators().filter(decorator =>
+                                ["Get", "Post", "Put", "Delete", "Patch"].includes(decorator.getName())
+                            );
+
+                            if (routeDecorators.length === 0) {
+                                console.log(chalk.gray(`⚠️ Skipping method ${method.getName()} in ${controllerName}: No HTTP decorator.`));
+                                return;
+                            }
+
+                            for (const decorator of routeDecorators) {
+                                const httpMethod = decorator.getName().toUpperCase();
+                                let routePath = "";
+
+                                const args = decorator.getArguments();
+                                if (args.length > 0 && args[0].getKind() === SyntaxKind.StringLiteral) {
+                                    routePath = args[0].getText().replace(/['"]/g, ""); // Remove quotes
+                                }
+
+                                const fullPath = `/${basePath}/${routePath}`.replace(/\/+/g, "/"); // Normalize slashes
+                                console.log(chalk.blue(`➡️  ${httpMethod} ${fullPath} (Method: ${method.getName()})`));
+
+                                const parameters = method.getParameters().map((param: ParameterDeclaration) => ({
+                                    name: param.getName(),
+                                    type: param.getType().getText()
+                                }));
+
+                                if (parameters.length > 0) {
+                                    console.log(chalk.magenta(`   🔹 Parameters: ${JSON.stringify(parameters)}`));
+                                }
+
+                                routesByController[controllerName].push({
+                                    method: httpMethod,
+                                    url: fullPath,
+                                    parameters
+                                });
+                            }
+                        } catch (error) {
+                            console.log(chalk.red(`❌ Error processing method ${method.getName()} in ${filePath}:\n${error}`));
+                        }
+                    });
+                } catch (error) {
+                    console.log(chalk.red(`❌ Error processing controller in ${filePath}:\n${error}`));
+                }
             }
         } catch (error) {
             console.log(chalk.red(`❌ Error processing file: ${filePath}\n${error}`));
@@ -118,7 +141,7 @@ export function scanNestProject(projectPath: string) {
 
     const workspaceId = `wrk_${Math.random().toString(36).substring(7)}`;
 
-    // per controller
+    // Per controller, create a request group
     const requestGroups = Object.keys(routesByController).map(controllerName => ({
         _id: `fld_${Math.random().toString(36).substring(7)}`,
         _type: "request_group",
@@ -126,7 +149,7 @@ export function scanNestProject(projectPath: string) {
         name: controllerName,
     }));
 
-    // requests grouped under their controllers
+    // Requests grouped under their controllers
     const requests = Object.entries(routesByController).flatMap(([controllerName, routes]) => {
         const groupId = requestGroups.find(group => group.name === controllerName)?._id || workspaceId;
 

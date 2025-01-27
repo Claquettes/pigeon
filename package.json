@@ -1,6 +1,6 @@
 {
-  "name": "pigeon-cli",
-  "version": "1.0.0",
+  "name": "pigeon-nest-mapper",
+  "version": "1.0.1",
   "description": "A CLI tool to scan NestJS projects and generate Insomnia import files.",
   "main": "dist/index.js",
   "bin": {
@@ -10,7 +10,8 @@
     "build": "tsc",
     "prepublishOnly": "npm run build"
   },
-  "author": "Claquettes",
+  "keywords": ["nestjs", "api", "routes", "scanner", "insomnia"],
+  "author": "Mathieu 'Claquettes' Ponton",
   "license": "MIT",
   "dependencies": {
     "commander": "^11.0.0",

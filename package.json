@@ -1,7 +1,7 @@
 {
   "name": "pigeon-nest-mapper",
-  "version": "1.0.2",
-  "description": "A CLI tool to scan NestJS projects and generate Insomnia import files.",
+  "version": "1.1.0",
+  "description": "A CLI tool to scan NestJS projects and import them into API clients like Insomnia and Postman",
   "main": "dist/index.js",
   "bin": {
     "pigeon": "./dist/index.js"
@@ -15,17 +15,23 @@
     "api",
     "routes",
     "scanner",
-    "insomnia"
+    "insomnia",
+    "postman",
+    "pigeon-api",
+    "api-mapper"
   ],
   "author": "Mathieu 'Claquettes' Ponton",
   "license": "MIT",
   "dependencies": {
+    "chalk": "^4.1.2",
     "commander": "^11.0.0",
-    "ts-morph": "^18.0.0",
-    "fs-extra": "^11.1.1",
-    "chalk": "^4.1.2"
+    "fs-extra": "^11.3.0",
+    "inquirer": "^12.3.2",
+    "ts-morph": "^18.0.0"
   },
   "devDependencies": {
+    "@types/fs-extra": "^11.0.4",
+    "@types/inquirer": "^9.0.7",
     "@types/node": "^20.5.1",
     "typescript": "^5.0.4"
   }

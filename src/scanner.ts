@@ -142,6 +142,33 @@ export function scanNestProject(projectPath: string, format: string) {
         };
     } else {
         const workspaceId = `wrk_${Math.random().toString(36).substring(7)}`;
+
+        const requestGroups = Object.keys(routesByController).map(controllerName => ({
+            _id: `fld_${Math.random().toString(36).substring(7)}`,
+            _type: "request_group",
+            parentId: workspaceId,
+            name: controllerName,
+        }));
+
+        const requests = Object.entries(routesByController).flatMap(([controllerName, routes]) => {
+            const groupId = requestGroups.find(group => group.name === controllerName)?._id || workspaceId;
+
+            return routes.map(route => ({
+                _id: `req_${Math.random().toString(36).substring(7)}`,
+                parentId: groupId,
+                _type: "request",
+                method: route.method,
+                url: `{{base_url}}${route.url}`,
+                name: route.url,
+                parameters: route.parameters.map((param: { name: string; type: string }) => ({
+                    name: param.name,
+                    type: param.type
+                })),
+                headers: [],
+                body: {},
+            }));
+        });
+
         return {
             _type: "export",
             __export_source: "Created by Pigeon",
@@ -149,12 +176,8 @@ export function scanNestProject(projectPath: string, format: string) {
             __export_date: new Date().toISOString(),
             resources: [
                 { _id: workspaceId, _type: "workspace", name: projectFolderName },
-                ...Object.entries(routesByController).flatMap(([controllerName, routes]) => ({
-                    _id: `fld_${Math.random().toString(36).substring(7)}`,
-                    _type: "request_group",
-                    parentId: workspaceId,
-                    name: controllerName
-                })),
+                ...requestGroups,
+                ...requests, // ✅ Requests are now included in the output
             ]
         };
     }
